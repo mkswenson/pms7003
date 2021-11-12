@@ -1,0 +1,13 @@
+[package]
+name = "pms7003"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+serialport = "4.0.1"
+structopt = "0.3.25"
+log = "0.4"
+env_logger = "0.9"
+nom = "7.1.0"
+prometheus_exporter = "0.8.3"
+lazy_static = "1.4.0"
