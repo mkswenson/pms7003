@@ -1,76 +1,32 @@
 {
-  description = "My cute Rust crate!";
-
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    utils.url = "github:numtide/flake-utils";
     naersk.url = "github:nmattia/naersk";
-    naersk.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs, naersk }:
-    let
-      cargoToml = (builtins.fromTOML (builtins.readFile ./Cargo.toml));
-      supportedSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" ];
-      forAllSystems = f: nixpkgs.lib.genAttrs supportedSystems (system: f system);
-    in
-    {
-      overlay = final: prev: {
-        "${cargoToml.package.name}" = final.callPackage ./. { inherit naersk; };
+  outputs = { self, nixpkgs, utils, naersk }:
+    # Note: This has only been tested on x86_64-linux.
+    utils.lib.eachDefaultSystem (system: let
+      pkgs = nixpkgs.legacyPackages."${system}";
+      naersk-lib = naersk.lib."${system}";
+    in rec {
+      # `nix build`
+      packages.pm7003 = naersk-lib.buildPackage {
+        pname = "pm7003";
+        root = ./.;
+        buildInputs = with pkgs; [ pkg-config udev ];
       };
+      defaultPackage = packages.pm7003;
 
-      packages = forAllSystems (system:
-        let
-          pkgs = import nixpkgs {
-            inherit system;
-            overlays = [
-              self.overlay
-            ];
-          };
-        in
-        {
-          "${cargoToml.package.name}" = pkgs."${cargoToml.package.name}";
-        });
+      # `nix run`
+      apps.my-project = utils.lib.mkApp {
+        drv = packages.my-project;
+      };
+      defaultApp = apps.my-project;
 
-      defaultPackage = forAllSystems (system: (import nixpkgs {
-        inherit system;
-        overlays = [ self.overlay ];
-      })."${cargoToml.package.name}");
-
-      checks = forAllSystems (system:
-        let
-          pkgs = import nixpkgs {
-            inherit system;
-            overlays = [
-              self.overlay
-            ];
-          };
-        in
-        {
-          format = pkgs.runCommand "check-format"
-            {
-              buildInputs = with pkgs; [ rustfmt cargo ];
-            } ''
-            ${pkgs.rustfmt}/bin/cargo-fmt fmt --manifest-path ${./.}/Cargo.toml -- --check
-            ${pkgs.nixpkgs-fmt}/bin/nixpkgs-fmt --check ${./.}
-            touch $out # it worked!
-          '';
-          "${cargoToml.package.name}" = pkgs."${cargoToml.package.name}";
-        });
-      devShell = forAllSystems (system:
-        let
-          pkgs = import nixpkgs {
-            inherit system;
-            overlays = [ self.overlay ];
-          };
-        in
-        pkgs.mkShell rec {
-          inputsFrom = with pkgs; [
-            pkgs."${cargoToml.package.name}"
-          ];
-          buildInputs = with pkgs; [
-            rustfmt
-            nixpkgs-fmt
-          ];
-        });
-    };
+      # `nix develop`
+      devShell = pkgs.mkShell {
+        nativeBuildInputs = with pkgs; [ rustc cargo ];
+      };
+    });
 }

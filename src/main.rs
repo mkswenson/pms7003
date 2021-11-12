@@ -5,7 +5,7 @@ extern crate prometheus_exporter;
 extern crate serialport;
 extern crate structopt;
 
-use log::{error, info, debug};
+use log::{debug, error, info};
 use std::error::Error;
 use std::io::BufReader;
 use std::io::Read;
@@ -35,7 +35,7 @@ struct Cli {
     #[structopt(name = "SERIAL_PORT")]
     port: String,
 
-    #[structopt(long, default_value="30.0")]
+    #[structopt(long, default_value = "30.0")]
     settle_time_seconds: f64,
 
     #[structopt(short, long)]
@@ -71,7 +71,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let callback = pms7003::default_callback(
-        Duration::from_millis((opt.settle_time_seconds * 1000.0) as u64), /*echo=*/!opt.quiet);
+        Duration::from_millis((opt.settle_time_seconds * 1000.0) as u64),
+        /*echo=*/ !opt.quiet,
+    );
     pms7003::read_active(&opt.port, callback)?;
 
     Ok(())

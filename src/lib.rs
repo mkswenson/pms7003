@@ -15,10 +15,10 @@ use nom::sequence::tuple;
 use nom::IResult;
 use nom::Needed;
 use prometheus_exporter::prometheus::{register_gauge_vec, GaugeVec};
+use std::error::Error;
 use std::num::NonZeroUsize;
 use std::thread;
-use std::error::Error;
-use std::time::{SystemTime, Duration};
+use std::time::{Duration, SystemTime};
 
 lazy_static! {
     pub static ref PARTICLE_CONCENTRATION_STANDARD: GaugeVec = register_gauge_vec!(
@@ -124,67 +124,93 @@ pub fn parse(input: &[u8]) -> IResult<&[u8], Option<PmsData>> {
     alt((map(parse_data, Some), map(take(1usize), |_| None)))(input)
 }
 
-pub fn default_callback(settle_time: Duration,
-                        echo: bool) -> Box<FnMut(PmsData)> {
+pub fn default_callback(settle_time: Duration, echo: bool) -> Box<FnMut(PmsData)> {
     let mut start_time = None;
     Box::new(move |data| {
         if start_time == None {
             start_time = Some(SystemTime::now());
             if echo && settle_time > Duration::from_secs(0) {
-                println!("Waiting {:?} until data is trusted...",
-                settle_time);
+                println!("Waiting {:?} until data is trusted...", settle_time);
             }
         }
         if let Ok(duration) = start_time.unwrap().elapsed() {
             if duration < settle_time {
-                info!("{:?} until data is trusted, ignoring: {:?}", settle_time - duration, data);
-                return
+                info!(
+                    "{:?} until data is trusted, ignoring: {:?}",
+                    settle_time - duration,
+                    data
+                );
+                return;
             }
         }
         update_metrics(&data);
         if echo {
             println!("------------------------------------------------");
             println!("Concentration units (standard)");
-            println!("pm1.0: {}\tpm2.5: {}\tpm10.0: {}",
-                     data.pm1_cf1,
-                     data.pm2_5_cf1,
-                     data.pm10_cf1);
+            println!(
+                "pm1.0: {}\tpm2.5: {}\tpm10.0: {}",
+                data.pm1_cf1, data.pm2_5_cf1, data.pm10_cf1
+            );
             println!();
             println!("Concentration units (environmental)");
-            println!("pm1.0: {}\tpm2.5: {}\tpm10.0: {}",
-                     data.pm1_atmo,
-                     data.pm2_5_atmo,
-                     data.pm10_atmo);
+            println!(
+                "pm1.0: {}\tpm2.5: {}\tpm10.0: {}",
+                data.pm1_atmo, data.pm2_5_atmo, data.pm10_atmo
+            );
             println!();
             println!("Particle counts");
-            println!("pm0.3: {}\tpm0.5: {}\tpm1.0: {}",
-                     data.pm0_3_count,
-                     data.pm0_5_count,
-                     data.pm1_0_count);
-            println!("pm2.5: {}\tpm5.0: {}\tpm10.0: {}",
-                     data.pm2_5_count,
-                     data.pm5_0_count,
-                     data.pm10_0_count);
+            println!(
+                "pm0.3: {}\tpm0.5: {}\tpm1.0: {}",
+                data.pm0_3_count, data.pm0_5_count, data.pm1_0_count
+            );
+            println!(
+                "pm2.5: {}\tpm5.0: {}\tpm10.0: {}",
+                data.pm2_5_count, data.pm5_0_count, data.pm10_0_count
+            );
             println!("------------------------------------------------");
         }
     })
 }
 
 pub fn update_metrics(data: &PmsData) {
-    PARTICLE_CONCENTRATION_STANDARD.with_label_values(&["1.0"]).set(data.pm1_cf1 as f64);
-    PARTICLE_CONCENTRATION_STANDARD.with_label_values(&["2.0"]).set(data.pm2_5_cf1 as f64);
-    PARTICLE_CONCENTRATION_STANDARD.with_label_values(&["10.0"]).set(data.pm10_cf1 as f64);
+    PARTICLE_CONCENTRATION_STANDARD
+        .with_label_values(&["1.0"])
+        .set(data.pm1_cf1 as f64);
+    PARTICLE_CONCENTRATION_STANDARD
+        .with_label_values(&["2.0"])
+        .set(data.pm2_5_cf1 as f64);
+    PARTICLE_CONCENTRATION_STANDARD
+        .with_label_values(&["10.0"])
+        .set(data.pm10_cf1 as f64);
 
-    PARTICLE_CONCENTRATION_ENVIRONMENT.with_label_values(&["1.0"]).set(data.pm1_atmo as f64);
-    PARTICLE_CONCENTRATION_ENVIRONMENT.with_label_values(&["2.0"]).set(data.pm2_5_atmo as f64);
-    PARTICLE_CONCENTRATION_ENVIRONMENT.with_label_values(&["10.0"]).set(data.pm10_atmo as f64);
+    PARTICLE_CONCENTRATION_ENVIRONMENT
+        .with_label_values(&["1.0"])
+        .set(data.pm1_atmo as f64);
+    PARTICLE_CONCENTRATION_ENVIRONMENT
+        .with_label_values(&["2.0"])
+        .set(data.pm2_5_atmo as f64);
+    PARTICLE_CONCENTRATION_ENVIRONMENT
+        .with_label_values(&["10.0"])
+        .set(data.pm10_atmo as f64);
 
-    PARTICLE_COUNT.with_label_values(&["0.3"]).set(data.pm0_3_count as f64);
-    PARTICLE_COUNT.with_label_values(&["0.5"]).set(data.pm0_5_count as f64);
-    PARTICLE_COUNT.with_label_values(&["1.0"]).set(data.pm1_0_count as f64);
-    PARTICLE_COUNT.with_label_values(&["2.5"]).set(data.pm2_5_count as f64);
-    PARTICLE_COUNT.with_label_values(&["5.0"]).set(data.pm5_0_count as f64);
-    PARTICLE_COUNT.with_label_values(&["10.0"]).set(data.pm10_0_count as f64);
+    PARTICLE_COUNT
+        .with_label_values(&["0.3"])
+        .set(data.pm0_3_count as f64);
+    PARTICLE_COUNT
+        .with_label_values(&["0.5"])
+        .set(data.pm0_5_count as f64);
+    PARTICLE_COUNT
+        .with_label_values(&["1.0"])
+        .set(data.pm1_0_count as f64);
+    PARTICLE_COUNT
+        .with_label_values(&["2.5"])
+        .set(data.pm2_5_count as f64);
+    PARTICLE_COUNT
+        .with_label_values(&["5.0"])
+        .set(data.pm5_0_count as f64);
+    PARTICLE_COUNT
+        .with_label_values(&["10.0"])
+        .set(data.pm10_0_count as f64);
 }
 
 pub fn read_active<F>(port: &str, mut callback: F) -> Result<(), Box<dyn Error>>

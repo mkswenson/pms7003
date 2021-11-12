@@ -1,6 +1,6 @@
 # PMS7003 - Particle Sensor CLI
 
-Prometheus exporter for a PMS7003 particle sensor.
+Prometheus exporter for the PMS7003 particle sensor.
 
 ## Example
 

@@ -1,10 +1,11 @@
 [package]
 name = "pms7003"
+description = "Prometheus exporter for the PMS7003 particle sensor"
 version = "0.1.0"
 edition = "2018"
 
 [dependencies]
-serialport = "4.0.1"
+serialport = { version = "4.0.1", default-features = false }
 structopt = "0.3.25"
 log = "0.4"
 env_logger = "0.9"
