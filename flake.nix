@@ -18,6 +18,10 @@
       };
       defaultPackage = packages.pm7003;
 
+      overlay = final: prev: {
+        pm7003 = packages.pm7003;
+      };
+
       # `nix run`
       apps.my-project = utils.lib.mkApp {
         drv = packages.my-project;
