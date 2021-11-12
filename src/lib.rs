@@ -130,6 +130,10 @@ pub fn default_callback(settle_time: Duration,
     Box::new(move |data| {
         if start_time == None {
             start_time = Some(SystemTime::now());
+            if echo && settle_time > Duration::from_secs(0) {
+                println!("Waiting {:?} until data is trusted...",
+                settle_time);
+            }
         }
         if let Ok(duration) = start_time.unwrap().elapsed() {
             if duration < settle_time {
