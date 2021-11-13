@@ -12,12 +12,12 @@
       naersk-lib = naersk.lib."${system}";
     in rec {
       # `nix build`
-      packages.pm7003 = naersk-lib.buildPackage {
-        pname = "pm7003";
+      packages.pms7003 = naersk-lib.buildPackage {
+        pname = "pms7003";
         root = ./.;
         buildInputs = with pkgs; [ pkg-config udev ];
       };
-      defaultPackage = packages.pm7003;
+      defaultPackage = packages.pms7003;
 
       # `nix run`
       apps.my-project = utils.lib.mkApp {
