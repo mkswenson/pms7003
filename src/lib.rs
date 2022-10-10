@@ -39,7 +39,43 @@ lazy_static! {
         &["particle_size"]
     )
     .unwrap();
+    pub static ref AIR_QUALITY_INDEX: GaugeVec = register_gauge_vec!(
+        "air_quality_index",
+        "air quality index (aqi) defined by united states environmental protection agency (us epa)",
+        &["particle_size"]
+    )
+    .unwrap();
 }
+
+const AQI_RANGES: [(f64, f64); 7] = [
+    (0.0, 50.0),
+    (51.0, 100.0),
+    (101.0, 150.0),
+    (151.0, 200.0),
+    (201.0, 300.0),
+    (301.0, 400.0),
+    (401.0, 500.0)
+];
+
+const AQI_PM2_5: [(f64, f64); 7] = [
+    (0.0, 12.0),
+    (12.1, 35.4),
+    (35.5, 55.4),
+    (55.5, 150.4),
+    (150.5, 250.4),
+    (250.5, 350.4),
+    (350.5, 500.4)
+];
+
+const AQI_PM10_0: [(f64, f64); 7] = [
+    (0.0, 54.0),
+    (55.0, 154.0),
+    (155.0, 254.0),
+    (255.0, 354.0),
+    (355.0, 424.0),
+    (425.0, 504.0),
+    (505.0, 604.0)
+];
 
 const START_MARKER: &str = "\x42\x4d";
 const BAUD_RATE: u32 = 9600;
@@ -61,6 +97,20 @@ pub struct PmsData {
     pm10_0_count: u16,
     reserved: u16,
     checksum: u16,
+}
+
+fn calculate_aqi(breakpoints: [(f64, f64); 7], data: f64) -> f64 {
+    let mut index: usize = 0;
+    let mut aqi: f64 = 0.0;
+    for breakpoint in breakpoints {
+        if data < breakpoint.1 {
+            aqi = (AQI_RANGES[index].1 - AQI_RANGES[index].0) / (breakpoint.1 - breakpoint.0) * (data - breakpoint.0) + AQI_RANGES[index].0;
+            break;
+        }
+        index += 1;
+    }
+
+    return aqi;
 }
 
 fn parse_data(input: &[u8]) -> IResult<&[u8], PmsData> {
@@ -211,6 +261,15 @@ pub fn update_metrics(data: &PmsData) {
     PARTICLE_COUNT
         .with_label_values(&["10.0"])
         .set(data.pm10_0_count as f64);
+
+    let aqi_pm2_5 = calculate_aqi(AQI_PM2_5, data.pm2_5_cf1 as f64);
+    AIR_QUALITY_INDEX
+        .with_label_values(&["2.5"])
+        .set(aqi_pm2_5);
+    let aqi_pm10_0 = calculate_aqi(AQI_PM10_0, data.pm10_cf1 as f64);
+    AIR_QUALITY_INDEX
+        .with_label_values(&["10.0"])
+        .set(aqi_pm10_0);
 }
 
 pub fn read_active<F>(port: &str, mut callback: F) -> Result<(), Box<dyn Error>>
