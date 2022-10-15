@@ -47,6 +47,7 @@ lazy_static! {
     .unwrap();
 }
 
+// Air Quality Index (AQI) Ranges: https://en.wikipedia.org/wiki/Air_quality_index
 const AQI_RANGES: [(f64, f64); 7] = [
     (0.0, 50.0),
     (51.0, 100.0),
@@ -57,7 +58,8 @@ const AQI_RANGES: [(f64, f64); 7] = [
     (401.0, 500.0)
 ];
 
-const AQI_PM2_5: [(f64, f64); 7] = [
+// Breakpoints: https://aqs.epa.gov/aqsweb/documents/codetables/aqi_breakpoints.html
+const AQI_PM2_5_BREAKPOINTS: [(f64, f64); 7] = [
     (0.0, 12.0),
     (12.1, 35.4),
     (35.5, 55.4),
@@ -67,7 +69,8 @@ const AQI_PM2_5: [(f64, f64); 7] = [
     (350.5, 500.4)
 ];
 
-const AQI_PM10_0: [(f64, f64); 7] = [
+// Breakpoints: https://aqs.epa.gov/aqsweb/documents/codetables/aqi_breakpoints.html
+const AQI_PM10_0_BREAKPOINTS: [(f64, f64); 7] = [
     (0.0, 54.0),
     (55.0, 154.0),
     (155.0, 254.0),
@@ -99,18 +102,15 @@ pub struct PmsData {
     checksum: u16,
 }
 
-fn calculate_aqi(breakpoints: [(f64, f64); 7], data: f64) -> f64 {
-    let mut index: usize = 0;
-    let mut aqi: f64 = 0.0;
-    for breakpoint in breakpoints {
-        if data < breakpoint.1 {
-            aqi = (AQI_RANGES[index].1 - AQI_RANGES[index].0) / (breakpoint.1 - breakpoint.0) * (data - breakpoint.0) + AQI_RANGES[index].0;
-            break;
-        }
-        index += 1;
-    }
-
-    return aqi;
+// Calculates Air Quality Index (AQI) 
+// Formula: https://en.wikipedia.org/wiki/Air_quality_index#Computing_the_AQI
+fn calculate_aqi(breakpoints: &[(f64, f64)], data: f64) -> f64 {
+    if data <= 0.0 { return 0.0; }
+    let data_nearest_tenth = (data * 10.0).round() / 10.0;
+    let index: usize = breakpoints.partition_point(|(low, _high)| data_nearest_tenth > *low) - 1;
+    let breakpoint: (f64, f64) = breakpoints[index];
+    let aqi: f64 = (AQI_RANGES[index].1 - AQI_RANGES[index].0) / (breakpoint.1 - breakpoint.0) * (data_nearest_tenth - breakpoint.0) + AQI_RANGES[index].0;
+    return aqi.min(AQI_RANGES[AQI_RANGES.len() - 1].1);
 }
 
 fn parse_data(input: &[u8]) -> IResult<&[u8], PmsData> {
@@ -227,7 +227,7 @@ pub fn update_metrics(data: &PmsData) {
         .with_label_values(&["1.0"])
         .set(data.pm1_cf1 as f64);
     PARTICLE_CONCENTRATION_STANDARD
-        .with_label_values(&["2.0"])
+        .with_label_values(&["2.5"])
         .set(data.pm2_5_cf1 as f64);
     PARTICLE_CONCENTRATION_STANDARD
         .with_label_values(&["10.0"])
@@ -237,7 +237,7 @@ pub fn update_metrics(data: &PmsData) {
         .with_label_values(&["1.0"])
         .set(data.pm1_atmo as f64);
     PARTICLE_CONCENTRATION_ENVIRONMENT
-        .with_label_values(&["2.0"])
+        .with_label_values(&["2.5"])
         .set(data.pm2_5_atmo as f64);
     PARTICLE_CONCENTRATION_ENVIRONMENT
         .with_label_values(&["10.0"])
@@ -262,11 +262,11 @@ pub fn update_metrics(data: &PmsData) {
         .with_label_values(&["10.0"])
         .set(data.pm10_0_count as f64);
 
-    let aqi_pm2_5 = calculate_aqi(AQI_PM2_5, data.pm2_5_cf1 as f64);
+    let aqi_pm2_5 = calculate_aqi(&AQI_PM2_5_BREAKPOINTS, data.pm2_5_cf1 as f64);
     AIR_QUALITY_INDEX
         .with_label_values(&["2.5"])
         .set(aqi_pm2_5);
-    let aqi_pm10_0 = calculate_aqi(AQI_PM10_0, data.pm10_cf1 as f64);
+    let aqi_pm10_0 = calculate_aqi(&AQI_PM10_0_BREAKPOINTS, data.pm10_cf1 as f64);
     AIR_QUALITY_INDEX
         .with_label_values(&["10.0"])
         .set(aqi_pm10_0);
@@ -362,5 +362,32 @@ mod tests {
     fn test_parse_invalid() {
         const INVALID: &str = "abc";
         assert_eq!(parse(INVALID.as_bytes()), Ok(("bc".as_bytes(), None)));
+    }
+
+    #[test]
+    fn test_aqi_valid() {
+        const DATA: f64 = 37.0;
+        assert!(calculate_aqi(&AQI_PM2_5_BREAKPOINTS, DATA) > 0.0);
+    }
+
+    #[test]
+    fn test_aqi_data_boundary_low() {
+        const DATA: f64 = -1.0;
+        const EXPECTED_AQI: f64 = AQI_RANGES[0].0;
+        assert_eq!(calculate_aqi(&AQI_PM2_5_BREAKPOINTS, DATA), EXPECTED_AQI);
+    }
+    
+    #[test]
+    fn test_aqi_data_boundary_high() {
+        const DATA: f64 = 1000000.0;
+        const EXPECTED_AQI: f64 = AQI_RANGES[AQI_RANGES.len() - 1].1;
+        assert_eq!(calculate_aqi(&AQI_PM2_5_BREAKPOINTS, DATA), EXPECTED_AQI);
+    }
+    
+    #[test]
+    fn test_aqi_breakpoint_boundary_data() {
+        const DATA_1: f64 = 12.05;
+        const DATA_2: f64 = 12.1;
+        assert_eq!(calculate_aqi(&AQI_PM2_5_BREAKPOINTS, DATA_1), calculate_aqi(&AQI_PM2_5_BREAKPOINTS, DATA_2));
     }
 }
