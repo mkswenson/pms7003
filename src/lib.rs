@@ -361,6 +361,35 @@ mod tests {
     }
 
     #[test]
+    fn test_metrics() {
+        update_metrics(&PmsData {
+            frame_length: 28,
+            pm1_cf1: 3,
+            pm2_5_cf1: 4,
+            pm10_cf1: 7,
+            pm1_atmo: 3,
+            pm2_5_atmo: 4,
+            pm10_atmo: 7,
+            pm0_3_count: 720,
+            pm0_5_count: 184,
+            pm1_0_count: 25,
+            pm2_5_count: 8,
+            pm5_0_count: 4,
+            pm10_0_count: 2,
+            reserved: 38656,
+            checksum: 783,
+        });
+	assert_eq!(PARTICLE_CONCENTRATION_STANDARD.with_label_values(&["1.0"]).get(),
+		   3.0);
+	assert_eq!(PARTICLE_CONCENTRATION_STANDARD.with_label_values(&["2.5"]).get(),
+		   4.0);
+	assert_eq!(PARTICLE_CONCENTRATION_STANDARD.with_label_values(&["10.0"]).get(),
+		   7.0);
+	assert!(AIR_QUALITY_INDEX.with_label_values(&["2.5"]).get() - 16.6 < 0.1);
+	assert!(AIR_QUALITY_INDEX.with_label_values(&["10.0"]).get() - 6.4 < 0.1);
+    }
+
+    #[test]
     fn test_parse_invalid() {
         const INVALID: &str = "abc";
         assert_eq!(parse(INVALID.as_bytes()), Ok(("bc".as_bytes(), None)));
