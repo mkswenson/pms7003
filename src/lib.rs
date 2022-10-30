@@ -55,7 +55,7 @@ const AQI_RANGES: [(f64, f64); 7] = [
     (151.0, 200.0),
     (201.0, 300.0),
     (301.0, 400.0),
-    (401.0, 500.0)
+    (401.0, 500.0),
 ];
 
 // Breakpoints: https://aqs.epa.gov/aqsweb/documents/codetables/aqi_breakpoints.html
@@ -66,7 +66,7 @@ const AQI_PM2_5_BREAKPOINTS: [(f64, f64); 7] = [
     (55.5, 150.4),
     (150.5, 250.4),
     (250.5, 350.4),
-    (350.5, 500.4)
+    (350.5, 500.4),
 ];
 
 // Breakpoints: https://aqs.epa.gov/aqsweb/documents/codetables/aqi_breakpoints.html
@@ -77,7 +77,7 @@ const AQI_PM10_0_BREAKPOINTS: [(f64, f64); 7] = [
     (255.0, 354.0),
     (355.0, 424.0),
     (425.0, 504.0),
-    (505.0, 604.0)
+    (505.0, 604.0),
 ];
 
 const START_MARKER: &str = "\x42\x4d";
@@ -102,14 +102,18 @@ pub struct PmsData {
     checksum: u16,
 }
 
-// Calculates Air Quality Index (AQI) 
+// Calculates Air Quality Index (AQI)
 // Formula: https://en.wikipedia.org/wiki/Air_quality_index#Computing_the_AQI
 fn calculate_aqi(breakpoints: &[(f64, f64)], data: f64) -> f64 {
-    if data <= 0.0 { return 0.0; }
+    if data <= 0.0 {
+        return 0.0;
+    }
     let data_nearest_tenth = (data * 10.0).round() / 10.0;
     let index: usize = breakpoints.partition_point(|(low, _high)| data_nearest_tenth > *low) - 1;
     let breakpoint: (f64, f64) = breakpoints[index];
-    let aqi: f64 = (AQI_RANGES[index].1 - AQI_RANGES[index].0) / (breakpoint.1 - breakpoint.0) * (data_nearest_tenth - breakpoint.0) + AQI_RANGES[index].0;
+    let aqi: f64 = (AQI_RANGES[index].1 - AQI_RANGES[index].0) / (breakpoint.1 - breakpoint.0)
+        * (data_nearest_tenth - breakpoint.0)
+        + AQI_RANGES[index].0;
     return aqi.min(AQI_RANGES[AQI_RANGES.len() - 1].1);
 }
 
@@ -263,9 +267,7 @@ pub fn update_metrics(data: &PmsData) {
         .set(data.pm10_0_count as f64);
 
     let aqi_pm2_5 = calculate_aqi(&AQI_PM2_5_BREAKPOINTS, data.pm2_5_cf1 as f64);
-    AIR_QUALITY_INDEX
-        .with_label_values(&["2.5"])
-        .set(aqi_pm2_5);
+    AIR_QUALITY_INDEX.with_label_values(&["2.5"]).set(aqi_pm2_5);
     let aqi_pm10_0 = calculate_aqi(&AQI_PM10_0_BREAKPOINTS, data.pm10_cf1 as f64);
     AIR_QUALITY_INDEX
         .with_label_values(&["10.0"])
@@ -376,18 +378,21 @@ mod tests {
         const EXPECTED_AQI: f64 = AQI_RANGES[0].0;
         assert_eq!(calculate_aqi(&AQI_PM2_5_BREAKPOINTS, DATA), EXPECTED_AQI);
     }
-    
+
     #[test]
     fn test_aqi_data_boundary_high() {
         const DATA: f64 = 1000000.0;
         const EXPECTED_AQI: f64 = AQI_RANGES[AQI_RANGES.len() - 1].1;
         assert_eq!(calculate_aqi(&AQI_PM2_5_BREAKPOINTS, DATA), EXPECTED_AQI);
     }
-    
+
     #[test]
     fn test_aqi_breakpoint_boundary_data() {
         const DATA_1: f64 = 12.05;
         const DATA_2: f64 = 12.1;
-        assert_eq!(calculate_aqi(&AQI_PM2_5_BREAKPOINTS, DATA_1), calculate_aqi(&AQI_PM2_5_BREAKPOINTS, DATA_2));
+        assert_eq!(
+            calculate_aqi(&AQI_PM2_5_BREAKPOINTS, DATA_1),
+            calculate_aqi(&AQI_PM2_5_BREAKPOINTS, DATA_2)
+        );
     }
 }
