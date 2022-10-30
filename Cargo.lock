@@ -42,6 +42,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "aqi"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d145d81bc54aac168c5915a3fa846a091b5808e3ddc2ee7d6083a73e02c90f49"
+
+[[package]]
 name = "ascii"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -289,6 +295,7 @@ checksum = "478c572c3d73181ff3c2539045f6eb99e5491218eae919370993b890cdbdd98e"
 name = "pms7003"
 version = "0.1.0"
 dependencies = [
+ "aqi",
  "env_logger",
  "lazy_static",
  "log",

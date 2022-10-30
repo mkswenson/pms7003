@@ -2,6 +2,7 @@ extern crate lazy_static;
 extern crate nom;
 extern crate prometheus_exporter;
 extern crate serialport;
+extern crate aqi;
 
 use lazy_static::lazy_static;
 use log::{debug, error, info};
@@ -14,7 +15,7 @@ use nom::number::streaming::be_u16;
 use nom::sequence::tuple;
 use nom::IResult;
 use nom::Needed;
-use prometheus_exporter::prometheus::{register_gauge_vec, GaugeVec};
+use prometheus_exporter::prometheus::{register_gauge_vec, GaugeVec, Gauge};
 use std::error::Error;
 use std::num::NonZeroUsize;
 use std::thread;
@@ -47,39 +48,6 @@ lazy_static! {
     .unwrap();
 }
 
-// Air Quality Index (AQI) Ranges: https://en.wikipedia.org/wiki/Air_quality_index
-const AQI_RANGES: [(f64, f64); 7] = [
-    (0.0, 50.0),
-    (51.0, 100.0),
-    (101.0, 150.0),
-    (151.0, 200.0),
-    (201.0, 300.0),
-    (301.0, 400.0),
-    (401.0, 500.0),
-];
-
-// Breakpoints: https://aqs.epa.gov/aqsweb/documents/codetables/aqi_breakpoints.html
-const AQI_PM2_5_BREAKPOINTS: [(f64, f64); 7] = [
-    (0.0, 12.0),
-    (12.1, 35.4),
-    (35.5, 55.4),
-    (55.5, 150.4),
-    (150.5, 250.4),
-    (250.5, 350.4),
-    (350.5, 500.4),
-];
-
-// Breakpoints: https://aqs.epa.gov/aqsweb/documents/codetables/aqi_breakpoints.html
-const AQI_PM10_0_BREAKPOINTS: [(f64, f64); 7] = [
-    (0.0, 54.0),
-    (55.0, 154.0),
-    (155.0, 254.0),
-    (255.0, 354.0),
-    (355.0, 424.0),
-    (425.0, 504.0),
-    (505.0, 604.0),
-];
-
 const START_MARKER: &str = "\x42\x4d";
 const BAUD_RATE: u32 = 9600;
 
@@ -100,21 +68,6 @@ pub struct PmsData {
     pm10_0_count: u16,
     reserved: u16,
     checksum: u16,
-}
-
-// Calculates Air Quality Index (AQI)
-// Formula: https://en.wikipedia.org/wiki/Air_quality_index#Computing_the_AQI
-fn calculate_aqi(breakpoints: &[(f64, f64)], data: f64) -> f64 {
-    if data <= 0.0 {
-        return 0.0;
-    }
-    let data_nearest_tenth = (data * 10.0).round() / 10.0;
-    let index: usize = breakpoints.partition_point(|(low, _high)| data_nearest_tenth > *low) - 1;
-    let breakpoint: (f64, f64) = breakpoints[index];
-    let aqi: f64 = (AQI_RANGES[index].1 - AQI_RANGES[index].0) / (breakpoint.1 - breakpoint.0)
-        * (data_nearest_tenth - breakpoint.0)
-        + AQI_RANGES[index].0;
-    return aqi.min(AQI_RANGES[AQI_RANGES.len() - 1].1);
 }
 
 fn parse_data(input: &[u8]) -> IResult<&[u8], PmsData> {
@@ -226,6 +179,16 @@ pub fn default_callback(settle_time: Duration, echo: bool) -> Box<FnMut(PmsData)
     })
 }
 
+pub fn update_aqi(value: aqi::Result<aqi::AirQuality>, metric: &Gauge) {
+    let air_quality = match value {
+	Err(e) => {
+	    error!("Could not compute AQI: {}", e);
+	    return;
+	},
+	Ok(v) => metric.set(v.aqi().into()),
+    };
+}
+
 pub fn update_metrics(data: &PmsData) {
     PARTICLE_CONCENTRATION_STANDARD
         .with_label_values(&["1.0"])
@@ -266,12 +229,8 @@ pub fn update_metrics(data: &PmsData) {
         .with_label_values(&["10.0"])
         .set(data.pm10_0_count as f64);
 
-    let aqi_pm2_5 = calculate_aqi(&AQI_PM2_5_BREAKPOINTS, data.pm2_5_cf1 as f64);
-    AIR_QUALITY_INDEX.with_label_values(&["2.5"]).set(aqi_pm2_5);
-    let aqi_pm10_0 = calculate_aqi(&AQI_PM10_0_BREAKPOINTS, data.pm10_cf1 as f64);
-    AIR_QUALITY_INDEX
-        .with_label_values(&["10.0"])
-        .set(aqi_pm10_0);
+    update_aqi(aqi::pm2_5(data.pm2_5_cf1.into()), &AIR_QUALITY_INDEX.with_label_values(&["2.5"]));
+    update_aqi(aqi::pm10(data.pm10_cf1.into()), &AIR_QUALITY_INDEX.with_label_values(&["10.0"]));
 }
 
 pub fn read_active<F>(port: &str, mut callback: F) -> Result<(), Box<dyn Error>>
@@ -321,6 +280,13 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
+    lazy_static! {
+	// To prevent concurrent access to the metrics.
+	static ref TEST_MUTEX: Mutex<()> = Mutex::new(());
+    }
+
     const GOLDEN_PACKET: &[u8] = &[
         0x42, 0x4d, 0x00, 0x1c, 0x00, 0x03, 0x00, 0x04, 0x00, 0x07, 0x00, 0x03, 0x00, 0x04, 0x00,
         0x07, 0x02, 0xd0, 0x00, 0xb8, 0x00, 0x19, 0x00, 0x08, 0x00, 0x04, 0x00, 0x02, 0x97, 0x00,
@@ -360,9 +326,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_metrics() {
-        update_metrics(&PmsData {
+    fn testdata() -> PmsData {
+    PmsData {
             frame_length: 28,
             pm1_cf1: 3,
             pm2_5_cf1: 4,
@@ -378,15 +343,22 @@ mod tests {
             pm10_0_count: 2,
             reserved: 38656,
             checksum: 783,
-        });
+    }
+    }
+
+    #[test]
+    fn test_metrics() {
+	let _ = env_logger::builder().is_test(true).try_init();
+	let _guard = TEST_MUTEX.lock().unwrap();
+        update_metrics(&testdata());
 	assert_eq!(PARTICLE_CONCENTRATION_STANDARD.with_label_values(&["1.0"]).get(),
 		   3.0);
 	assert_eq!(PARTICLE_CONCENTRATION_STANDARD.with_label_values(&["2.5"]).get(),
 		   4.0);
 	assert_eq!(PARTICLE_CONCENTRATION_STANDARD.with_label_values(&["10.0"]).get(),
 		   7.0);
-	assert!(AIR_QUALITY_INDEX.with_label_values(&["2.5"]).get() - 16.6 < 0.1);
-	assert!(AIR_QUALITY_INDEX.with_label_values(&["10.0"]).get() - 6.4 < 0.1);
+	assert_eq!(AIR_QUALITY_INDEX.with_label_values(&["2.5"]).get(), 17.0);
+	assert_eq!(AIR_QUALITY_INDEX.with_label_values(&["10.0"]).get(), 6.0);
     }
 
     #[test]
@@ -397,31 +369,23 @@ mod tests {
 
     #[test]
     fn test_aqi_valid() {
-        const DATA: f64 = 37.0;
-        assert!(calculate_aqi(&AQI_PM2_5_BREAKPOINTS, DATA) > 0.0);
+	let _ = env_logger::builder().is_test(true).try_init();
+	let _guard = TEST_MUTEX.lock().unwrap();
+	let mut data = testdata();
+	data.pm2_5_cf1 = 37;
+	update_metrics(&data);
+	assert_eq!(AIR_QUALITY_INDEX.with_label_values(&["2.5"]).get(), 105.0);
     }
 
     #[test]
-    fn test_aqi_data_boundary_low() {
-        const DATA: f64 = -1.0;
-        const EXPECTED_AQI: f64 = AQI_RANGES[0].0;
-        assert_eq!(calculate_aqi(&AQI_PM2_5_BREAKPOINTS, DATA), EXPECTED_AQI);
-    }
-
-    #[test]
-    fn test_aqi_data_boundary_high() {
-        const DATA: f64 = 1000000.0;
-        const EXPECTED_AQI: f64 = AQI_RANGES[AQI_RANGES.len() - 1].1;
-        assert_eq!(calculate_aqi(&AQI_PM2_5_BREAKPOINTS, DATA), EXPECTED_AQI);
-    }
-
-    #[test]
-    fn test_aqi_breakpoint_boundary_data() {
-        const DATA_1: f64 = 12.05;
-        const DATA_2: f64 = 12.1;
-        assert_eq!(
-            calculate_aqi(&AQI_PM2_5_BREAKPOINTS, DATA_1),
-            calculate_aqi(&AQI_PM2_5_BREAKPOINTS, DATA_2)
-        );
+    fn test_aqi_out_of_range() {
+	let _ = env_logger::builder().is_test(true).try_init();
+	let _guard = TEST_MUTEX.lock().unwrap();
+	update_metrics(&testdata());
+	let before = AIR_QUALITY_INDEX.with_label_values(&["10.0"]).get();
+	let mut data = testdata();
+	data.pm10_cf1 = u16::MAX;
+	update_metrics(&data);
+	assert_eq!(AIR_QUALITY_INDEX.with_label_values(&["10.0"]).get(), before);
     }
 }
