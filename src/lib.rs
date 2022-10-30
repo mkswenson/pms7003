@@ -1,8 +1,8 @@
+extern crate aqi;
 extern crate lazy_static;
 extern crate nom;
 extern crate prometheus_exporter;
 extern crate serialport;
-extern crate aqi;
 
 use lazy_static::lazy_static;
 use log::{debug, error, info};
@@ -15,7 +15,7 @@ use nom::number::streaming::be_u16;
 use nom::sequence::tuple;
 use nom::IResult;
 use nom::Needed;
-use prometheus_exporter::prometheus::{register_gauge_vec, GaugeVec, Gauge};
+use prometheus_exporter::prometheus::{register_gauge_vec, Gauge, GaugeVec};
 use std::error::Error;
 use std::num::NonZeroUsize;
 use std::thread;
@@ -181,11 +181,11 @@ pub fn default_callback(settle_time: Duration, echo: bool) -> Box<FnMut(PmsData)
 
 pub fn update_aqi(value: aqi::Result<aqi::AirQuality>, metric: &Gauge) {
     let air_quality = match value {
-	Err(e) => {
-	    error!("Could not compute AQI: {}", e);
-	    return;
-	},
-	Ok(v) => metric.set(v.aqi().into()),
+        Err(e) => {
+            error!("Could not compute AQI: {}", e);
+            return;
+        }
+        Ok(v) => metric.set(v.aqi().into()),
     };
 }
 
@@ -229,8 +229,14 @@ pub fn update_metrics(data: &PmsData) {
         .with_label_values(&["10.0"])
         .set(data.pm10_0_count as f64);
 
-    update_aqi(aqi::pm2_5(data.pm2_5_cf1.into()), &AIR_QUALITY_INDEX.with_label_values(&["2.5"]));
-    update_aqi(aqi::pm10(data.pm10_cf1.into()), &AIR_QUALITY_INDEX.with_label_values(&["10.0"]));
+    update_aqi(
+        aqi::pm2_5(data.pm2_5_cf1.into()),
+        &AIR_QUALITY_INDEX.with_label_values(&["2.5"]),
+    );
+    update_aqi(
+        aqi::pm10(data.pm10_cf1.into()),
+        &AIR_QUALITY_INDEX.with_label_values(&["10.0"]),
+    );
 }
 
 pub fn read_active<F>(port: &str, mut callback: F) -> Result<(), Box<dyn Error>>
@@ -283,8 +289,8 @@ mod tests {
     use std::sync::Mutex;
 
     lazy_static! {
-	// To prevent concurrent access to the metrics.
-	static ref TEST_MUTEX: Mutex<()> = Mutex::new(());
+    // To prevent concurrent access to the metrics.
+    static ref TEST_MUTEX: Mutex<()> = Mutex::new(());
     }
 
     const GOLDEN_PACKET: &[u8] = &[
@@ -327,7 +333,7 @@ mod tests {
     }
 
     fn testdata() -> PmsData {
-    PmsData {
+        PmsData {
             frame_length: 28,
             pm1_cf1: 3,
             pm2_5_cf1: 4,
@@ -343,22 +349,34 @@ mod tests {
             pm10_0_count: 2,
             reserved: 38656,
             checksum: 783,
-    }
+        }
     }
 
     #[test]
     fn test_metrics() {
-	let _ = env_logger::builder().is_test(true).try_init();
-	let _guard = TEST_MUTEX.lock().unwrap();
+        let _ = env_logger::builder().is_test(true).try_init();
+        let _guard = TEST_MUTEX.lock().unwrap();
         update_metrics(&testdata());
-	assert_eq!(PARTICLE_CONCENTRATION_STANDARD.with_label_values(&["1.0"]).get(),
-		   3.0);
-	assert_eq!(PARTICLE_CONCENTRATION_STANDARD.with_label_values(&["2.5"]).get(),
-		   4.0);
-	assert_eq!(PARTICLE_CONCENTRATION_STANDARD.with_label_values(&["10.0"]).get(),
-		   7.0);
-	assert_eq!(AIR_QUALITY_INDEX.with_label_values(&["2.5"]).get(), 17.0);
-	assert_eq!(AIR_QUALITY_INDEX.with_label_values(&["10.0"]).get(), 6.0);
+        assert_eq!(
+            PARTICLE_CONCENTRATION_STANDARD
+                .with_label_values(&["1.0"])
+                .get(),
+            3.0
+        );
+        assert_eq!(
+            PARTICLE_CONCENTRATION_STANDARD
+                .with_label_values(&["2.5"])
+                .get(),
+            4.0
+        );
+        assert_eq!(
+            PARTICLE_CONCENTRATION_STANDARD
+                .with_label_values(&["10.0"])
+                .get(),
+            7.0
+        );
+        assert_eq!(AIR_QUALITY_INDEX.with_label_values(&["2.5"]).get(), 17.0);
+        assert_eq!(AIR_QUALITY_INDEX.with_label_values(&["10.0"]).get(), 6.0);
     }
 
     #[test]
@@ -369,23 +387,23 @@ mod tests {
 
     #[test]
     fn test_aqi_valid() {
-	let _ = env_logger::builder().is_test(true).try_init();
-	let _guard = TEST_MUTEX.lock().unwrap();
-	let mut data = testdata();
-	data.pm2_5_cf1 = 37;
-	update_metrics(&data);
-	assert_eq!(AIR_QUALITY_INDEX.with_label_values(&["2.5"]).get(), 105.0);
+        let _ = env_logger::builder().is_test(true).try_init();
+        let _guard = TEST_MUTEX.lock().unwrap();
+        let mut data = testdata();
+        data.pm2_5_cf1 = 37;
+        update_metrics(&data);
+        assert_eq!(AIR_QUALITY_INDEX.with_label_values(&["2.5"]).get(), 105.0);
     }
 
     #[test]
     fn test_aqi_out_of_range() {
-	let _ = env_logger::builder().is_test(true).try_init();
-	let _guard = TEST_MUTEX.lock().unwrap();
-	update_metrics(&testdata());
-	let before = AIR_QUALITY_INDEX.with_label_values(&["10.0"]).get();
-	let mut data = testdata();
-	data.pm10_cf1 = u16::MAX;
-	update_metrics(&data);
-	assert_eq!(AIR_QUALITY_INDEX.with_label_values(&["10.0"]).get(), before);
+        let _ = env_logger::builder().is_test(true).try_init();
+        let _guard = TEST_MUTEX.lock().unwrap();
+        update_metrics(&testdata());
+        let before = AIR_QUALITY_INDEX.with_label_values(&["10.0"]).get();
+        let mut data = testdata();
+        data.pm10_cf1 = u16::MAX;
+        update_metrics(&data);
+        assert_eq!(AIR_QUALITY_INDEX.with_label_values(&["10.0"]).get(), before);
     }
 }
